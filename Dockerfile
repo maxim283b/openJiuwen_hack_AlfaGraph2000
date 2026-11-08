@@ -19,7 +19,8 @@ ENV AGENT_PROFILE=/app/profiles/public-20261108.json
 ENV AGENT_BANDIT=/app/profiles/bandit-20261108.json
 ENV AGENT_FORECAST_PROFILE=/app/profiles/forecast-20261108.json
 ENV AGENT_FORECAST_POLICY=density
+ENV AGENT_VERIFICATION=1
 COPY alfagraph /app/alfagraph
-COPY profiles /app/profiles
+COPY profiles/public-20261108.json profiles/bandit-20261108.json profiles/forecast-20261108.json /app/profiles/
 COPY run_agent.py /app/run_agent.py
 ENTRYPOINT ["python", "/app/run_agent.py"]

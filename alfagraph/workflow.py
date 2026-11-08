@@ -56,6 +56,7 @@ class TaskWorkflow:
         for name, action in [
             ("local", engine.local_stage),
             ("agent", engine.agent_stage),
+            ("review", engine.review_stage),
             ("save", engine.save_stage),
         ]:
             self.flow.add_workflow_comp(

@@ -16,6 +16,7 @@ from alfagraph.local import InsufficientData, solve_csv, solve_math, solve_searc
 from alfagraph.planner import Planner
 from alfagraph.profile import CostProfile
 from alfagraph.repair import repair
+from alfagraph.review import Reviewer
 from alfagraph.selection import SelectionPolicy
 from alfagraph.tasks import atomic_write, load_tasks, normalize_answer
 from alfagraph.workflow import TaskWorkflow
@@ -74,11 +75,14 @@ class Harness:
         self.results = {}
         self.allocations = {}
         self.client = None
+        self.reviewer = None
+        review_state = {}
         self.offline = offline or not settings.api_key
         if resume:
             if not report.is_file():
                 raise ValueError("--resume requires the previous --report to preserve budget usage")
             previous = json.loads(report.read_text())
+            review_state = previous.get("review_state", {})
             self.resumed_steps = {
                 tid: value["steps"] for tid, value in previous.get("agent_sessions", {}).items()
             }
@@ -122,6 +126,14 @@ class Harness:
                 }
         if not self.offline:
             self.client = Client(settings, self.budget, self.trace)
+            if settings.verification:
+                self.reviewer = Reviewer(
+                    self.client,
+                    settings,
+                    self.deadline,
+                    review_state.get("limits"),
+                    review_state.get("calls"),
+                )
 
     def trace(self, event, **data):
         record = {"event": event, "elapsed": round(time.monotonic() - self.started, 3), **data}
@@ -143,6 +155,10 @@ class Harness:
             "task_spent_units": self.budget.task_spent,
             "allocation_mode": self.settings.allocation,
             "forecast_policy": self.settings.forecast_policy,
+            "verification_enabled": self.settings.verification,
+            "review_state": {"limits": self.reviewer.limits, "calls": self.reviewer.calls}
+            if self.reviewer
+            else {},
             "agent_states": {tid: s.state.as_dict() for tid, s in self.sessions.items()},
             "agent_sessions": {
                 **{
@@ -246,6 +262,24 @@ class Harness:
         attempt = self.attempts[task_id]
         if attempt.status == "solved":
             return
+        if self.reviewer and mode == "agent" and not attempt.review_done:
+            session = self.sessions.get(task_id)
+            if (
+                attempt.answer is not None
+                or attempt.status == "unsolvable"
+                or not session
+                or session.finished
+            ):
+                attempt.review_pending = True
+                self.results[task_id] = {
+                    "status": "awaiting_review",
+                    "answer": None,
+                    "reward": attempt.task.reward,
+                    "reason": "Independent check pending",
+                    "cost": self.budget.task_spent.get(task_id, 0) / 10,
+                }
+                self.save_report()
+                return
         if attempt.answer is not None:
             answer = normalize_answer(attempt.task, attempt.answer)
             if attempt.task.kind == "coding":
@@ -264,9 +298,14 @@ class Harness:
             "reason": attempt.reason,
             "reward": attempt.task.reward,
             "cost": self.budget.task_spent.get(task_id, 0) / 10,
+            "verification": attempt.verification,
         }
         self.trace("task_result", task_id=task_id, **self.results[task_id])
         self.save_report()
+
+    async def review_stage(self, task_id, mode):
+        if mode == "review" and self.reviewer:
+            await self.reviewer.review(self.attempts[task_id])
 
     async def run_one(self, task, mode):
         try:
@@ -288,7 +327,16 @@ class Harness:
             self.trace("task_error", task_id=task.task_id, error=type(exc).__name__)
         finally:
             attempt = self.attempts[task.task_id]
-            if attempt.status != "solved":
+            if attempt.review_pending:
+                self.results[task.task_id] = {
+                    "status": "awaiting_review",
+                    "answer": None,
+                    "method": attempt.method,
+                    "reason": attempt.reason,
+                    "reward": task.reward,
+                    "cost": self.budget.task_spent.get(task.task_id, 0) / 10,
+                }
+            elif attempt.status != "solved":
                 self.results[task.task_id] = {
                     "status": attempt.status,
                     "answer": None,
@@ -296,6 +344,7 @@ class Harness:
                     "reason": attempt.reason,
                     "reward": task.reward,
                     "cost": self.budget.task_spent.get(task.task_id, 0) / 10,
+                    "verification": attempt.verification,
                 }
             self.save_report()
 
@@ -320,6 +369,9 @@ class Harness:
                 a.task for a in self.attempts.values() if a.status == "pending" and a.answer is None
             ]
             while pending and not self.offline and time.monotonic() < self.deadline:
+                # Keep a substantial share available for independent checks.
+                if self.reviewer and self.budget.spent >= self.budget.limit * 0.65:
+                    break
                 batch = []
                 planned = 0.0
                 for _ in range(self.settings.concurrency):
@@ -371,7 +423,26 @@ class Harness:
                     self.planner.record(
                         task,
                         self.budget.task_spent.get(task.task_id, 0) / 10,
-                        attempt.status == "solved",
+                        attempt.status == "solved" or attempt.answer is not None,
+                    )
+            if self.reviewer:
+                # Scheduling is based on verification risk and public reward,
+                # never on hidden correctness or the benchmark's impossible flag.
+                priority = {"search": 4, "coding": 3, "data_analysis": 2, "math": 1}
+                checks = [
+                    a.task
+                    for a in self.attempts.values()
+                    if a.status != "solved" and not a.review_done and a.task.reward > 0
+                ]
+                checks.sort(key=lambda t: (priority[t.kind], t.reward), reverse=True)
+                for index in range(0, len(checks), self.settings.concurrency):
+                    if time.monotonic() >= self.deadline:
+                        break
+                    await asyncio.gather(
+                        *(
+                            self.run_one(task, "review")
+                            for task in checks[index : index + self.settings.concurrency]
+                        )
                     )
             for task in self.tasks:
                 if task.task_id not in self.results:

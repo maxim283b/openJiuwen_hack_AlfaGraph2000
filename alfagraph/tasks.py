@@ -35,6 +35,9 @@ class Attempt:
     method: str = ""
     evidence_files: set[str] = field(default_factory=set)
     test_result: dict = field(default_factory=dict)
+    review_pending: bool = False
+    review_done: bool = False
+    verification: dict = field(default_factory=dict)
 
 
 def load_tasks(root: Path) -> list[Task]:

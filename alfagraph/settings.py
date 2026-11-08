@@ -27,6 +27,10 @@ class Settings:
     selection: str = ""
     forecast: str = ""
     forecast_policy: str = ""
+    verification: bool = False
+    review_tokens: int = 3200
+    review_model: str = "qwen3.8-27b"
+    review_fast_model: str = "qwen3.6-35b-a3b-noreason"
 
     @classmethod
     def from_env(cls):
@@ -49,6 +53,10 @@ class Settings:
             selection=os.getenv("AGENT_SELECTION_POLICY", ""),
             forecast=os.getenv("AGENT_FORECAST_PROFILE", ""),
             forecast_policy=os.getenv("AGENT_FORECAST_POLICY", ""),
+            verification=os.getenv("AGENT_VERIFICATION", "0") == "1",
+            review_tokens=int(os.getenv("AGENT_REVIEW_TOKENS", "3200")),
+            review_model=os.getenv("AGENT_REVIEW_MODEL", cls.review_model),
+            review_fast_model=os.getenv("AGENT_REVIEW_FAST_MODEL", cls.review_fast_model),
         )
         if (
             settings.model not in MODELS
@@ -63,6 +71,9 @@ class Settings:
             or settings.progress_patience < 1
             or settings.forecast_policy not in {"", "step", "density", "knapsack", "mpc"}
             or bool(settings.forecast) != bool(settings.forecast_policy)
+            or settings.review_tokens < 512
+            or settings.review_model not in MODELS
+            or settings.review_fast_model not in MODELS
         ):
             raise ValueError("Invalid model, budget, concurrency, step or time limit setting")
         return settings
