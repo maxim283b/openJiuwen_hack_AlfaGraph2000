@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "unit": "normalized_output_tokens",
+  "types": {
+    "math": {
+      "feature": "instruction_chars",
+      "thresholds": [
+        168,
+        228
+      ],
+      "overall": {
+        "attempts": 25,
+        "correct": 18,
+        "mean_cost": 395.08,
+        "median_cost": 331.0,
+        "p90_cost": 610.3,
+        "accuracy_wilson_95": [
+          0.5242,
+          0.8572
+        ]
+      },
+      "buckets": [
+        {
+          "attempts": 8,
+          "correct": 7,
+          "mean_cost": 278.02,
+          "median_cost": 260.65,
+          "p90_cost": 578.1,
+          "accuracy_wilson_95": [
+            0.5291,
+            0.9776
+          ]
+        },
+        {
+          "attempts": 8,
+          "correct": 6,
+          "mean_cost": 385.25,
+          "median_cost": 334.95,
+          "p90_cost": 587.1,
+          "accuracy_wilson_95": [
+            0.4093,
+            0.9285
+          ]
+        },
+        {
+          "attempts": 9,
+          "correct": 5,
+          "mean_cost": 507.87,
+          "median_cost": 577.7,
+          "p90_cost": 693.1,
+          "accuracy_wilson_95": [
+            0.2666,
+            0.8112
+          ]
+        }
+      ]
+    },
+    "search": {
+      "feature": "bytes",
+      "thresholds": [
+        612,
+        996
+      ],
+      "overall": {
+        "attempts": 25,
+        "correct": 14,
+        "mean_cost": 293.69,
+        "median_cost": 331.0,
+        "p90_cost": 390.4,
+        "accuracy_wilson_95": [
+          0.3707,
+          0.7333
+        ]
+      },
+      "buckets": [
+        {
+          "attempts": 8,
+          "correct": 7,
+          "mean_cost": 354.15,
+          "median_cost": 339.45,
+          "p90_cost": 438.9,
+          "accuracy_wilson_95": [
+            0.5291,
+            0.9776
+          ]
+        },
+        {
+          "attempts": 8,
+          "correct": 5,
+          "mean_cost": 320.52,
+          "median_cost": 336.45,
+          "p90_cost": 354.7,
+          "accuracy_wilson_95": [
+            0.3057,
+            0.8632
+          ]
+        },
+        {
+          "attempts": 9,
+          "correct": 2,
+          "mean_cost": 216.1,
+          "median_cost": 145.6,
+          "p90_cost": 405.0,
+          "accuracy_wilson_95": [
+            0.0632,
+            0.5474
+          ]
+        }
+      ]
+    },
+    "coding": {
+      "feature": "instruction_chars",
+      "thresholds": [
+        149,
+        207
+      ],
+      "overall": {
+        "attempts": 25,
+        "correct": 22,
+        "mean_cost": 383.56,
+        "median_cost": 237.5,
+        "p90_cost": 679.3,
+        "accuracy_wilson_95": [
+          0.7004,
+          0.9583
+        ]
+      },
+      "buckets": [
+        {
+          "attempts": 8,
+          "correct": 8,
+          "mean_cost": 241.44,
+          "median_cost": 227.5,
+          "p90_cost": 367.3,
+          "accuracy_wilson_95": [
+            0.6756,
+            1.0
+          ]
+        },
+        {
+          "attempts": 8,
+          "correct": 7,
+          "mean_cost": 406.49,
+          "median_cost": 231.05,
+          "p90_cost": 1278.5,
+          "accuracy_wilson_95": [
+            0.5291,
+            0.9776
+          ]
+        },
+        {
+          "attempts": 9,
+          "correct": 7,
+          "mean_cost": 489.52,
+          "median_cost": 414.2,
+          "p90_cost": 1331.1,
+          "accuracy_wilson_95": [
+            0.4526,
+            0.9368
+          ]
+        }
+      ]
+    }
+  },
+  "training": {
+    "corpus_sha256": "c8e07a560f539d21d3e2eecbaf1bc80d57fdb0cef20bd94b20bfcc877b5f18b6",
+    "source_sha256": "d129a5bb146c6f6b8a18355e7b4cb8c7e40840f41857c49eef7409ca4aedffd0",
+    "split": "calibration",
+    "excluded": "native impossible examples, zero-cost local solves, unattempted examples",
+    "method": "empirical means and success rates, partial pooling at inference",
+    "protocol_exclusion": "data_analysis: numeric tool protocol changed after calibration; retain heuristic prior instead of obsolete measured accuracy"
+  }
+}

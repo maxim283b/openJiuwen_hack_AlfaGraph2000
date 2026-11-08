@@ -1,0 +1,14 @@
+.git
+.venv
+.env
+.env.*
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+data
+logs
+output
+task-dir.zip
+tests
+.DS_Store
