@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 
 from openjiuwen.core.common.logging.log_config import configure_log_config
@@ -13,6 +14,7 @@ configure_log_config(
     }
 )
 
+from openjiuwen.core.session import WORKFLOW_EXECUTE_TIMEOUT  # noqa: E402
 from openjiuwen.core.workflow import (  # noqa: E402
     End,
     Start,
@@ -37,6 +39,7 @@ class TaskWorkflow:
     """Every task follows a real openJiuwen graph, including validation and submission."""
 
     def __init__(self, engine):
+        self.deadline = engine.deadline
         self.flow = Workflow(
             card=WorkflowCard(
                 id="alfagraph-task-" + uuid.uuid4().hex,
@@ -75,7 +78,10 @@ class TaskWorkflow:
     async def run(self, task_id: str, mode: str):
         result = await self.flow.invoke(
             {"task_id": task_id, "mode": mode},
-            create_workflow_session(session_id=uuid.uuid4().hex),
+            create_workflow_session(
+                session_id=uuid.uuid4().hex,
+                envs={WORKFLOW_EXECUTE_TIMEOUT: max(0.01, self.deadline - time.monotonic())},
+            ),
         )
         if result.state.value != "COMPLETED":
             raise RuntimeError(f"openJiuwen workflow did not complete: {result.state}")

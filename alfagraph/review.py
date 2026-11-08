@@ -30,7 +30,8 @@ applies every filter and computes the requested quantity. Never infer an aggrega
 preview rows. Preserve requested units; do not convert units or currencies unless asked.
 Print one exact integer. Counts over an empty selection are zero; a lookup/min/max over
 an empty selection is undefined. Do not replace missing values with zero.
-For coding, generate at least three distinct direct assert statements from the specification
+For coding, supply at least three distinct literal input/output cases when requested; otherwise
+generate direct assert statements from the specification
 and public examples, including relevant boundaries. Do not assume out-of-contract behavior.
 Do not hardcode examples. In the test-design phase implementation bodies are hidden.
 If a generated test fails, first decide whether it is actually justified by the contract.
@@ -148,6 +149,36 @@ def validate_tests(code):
             raise ValueError("A tautology does not test an implementation")
 
 
+def case_tests(attempt, cases):
+    """Build imports and assertions locally; the model supplies only test data."""
+    imports, functions = [], set()
+    for path in workspace_files(attempt.work):
+        rel = path.relative_to(attempt.work)
+        if path.suffix != ".py" or is_test(rel):
+            continue
+        module = ".".join(rel.with_suffix("").parts)
+        if not all(part.isidentifier() for part in module.split(".")):
+            continue
+        names = [n.name for n in ast.parse(path.read_text()).body if isinstance(n, ast.FunctionDef)]
+        if names:
+            imports.append(f"from {module} import " + ", ".join(names))
+            functions.update(names)
+    lines = list(imports)
+    for case in cases:
+        expression = ast.parse(case["expression"], mode="eval").body
+        if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Name):
+            raise ValueError("Each case must call a supplied function directly")
+        if expression.func.id not in functions:
+            raise ValueError("Case must call a supplied function")
+        for arg in [*expression.args, *(k.value for k in expression.keywords)]:
+            ast.literal_eval(arg)
+        expected = ast.literal_eval(case["expected"])
+        lines.append(f"assert {ast.unparse(expression)} == {expected!r}")
+    code = "\n".join(lines)
+    validate_tests(code)
+    return code
+
+
 async def sandbox(attempt, code, fixes=()):
     with tempfile.TemporaryDirectory(prefix="review-") as temporary:
         work = (Path(temporary) / "workspace").resolve()
@@ -206,8 +237,39 @@ class Reviewer:
             },
             ["verdict", "reason"],
         )
+        if phase == "test_design":
+            report_tool["parameters"]["properties"].pop("tests")
+            report_tool["parameters"]["properties"]["cases"] = {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {
+                            "type": "string",
+                            "description": "Function call with literal arguments, e.g. f(2)",
+                        },
+                        "expected": {
+                            "type": "string",
+                            "description": "Expected Python literal, e.g. 3 or [1, 2]",
+                        },
+                    },
+                    "required": ["expression", "expected"],
+                    "additionalProperties": False,
+                },
+            }
+            report_tool["parameters"]["required"].append("cases")
+            messages[1]["content"] += (
+                "\nReturn 3-6 independent cases as expression/expected Python literal strings. "
+                "Imports and assert statements are generated locally. Use only the public contract."
+            )
+        phase_calls = 0
         fully_read = set()
         while self.calls.get(tid, 0) < 5 and time.monotonic() < self.deadline:
+            if phase_calls >= (2 if attempt.task.kind == "coding" else 5):
+                return None
+            phase_calls += 1
             self.calls[tid] = self.calls.get(tid, 0) + 1
             reply = await self.client.complete(
                 tid,
@@ -260,6 +322,8 @@ class Reviewer:
                 args = call.arguments or {}
                 if call.name == "review_result":
                     try:
+                        if phase == "test_design" and "cases" in args:
+                            args["tests"] = case_tests(attempt, args["cases"])
                         if args.get("verdict") not in {
                             "answerable",
                             "insufficient",
@@ -364,14 +428,25 @@ class Reviewer:
         result, provided = await sandbox(attempt, tests, fixes)
         if result["returncode"] == 0 and provided["ok"]:
             return "DONE", "corrected" if fixes else "verified", strong["reason"]
-        return None, "uncertain", "Independent and provided tests could not both be satisfied"
+        return attempt.answer, "unreviewed", "Independent tests could not be satisfied safely"
 
     async def review(self, attempt):
         tid = attempt.task.task_id
         original = attempt.answer
         before = self.client.budget.task_spent.get(tid, 0) / 10
         self.limits.setdefault(
-            tid, min(self.settings.task_tokens, math.ceil(before + self.settings.review_tokens))
+            tid,
+            min(
+                self.settings.task_tokens,
+                math.ceil(
+                    before
+                    + (
+                        self.settings.review_tokens
+                        if attempt.task.kind == "coding"
+                        else self.settings.review_tokens
+                    )
+                ),
+            ),
         )
         self.client.trace("review_started", task_id=tid, limit=self.limits[tid])
         answer, status, reason = original, "unreviewed", "Verification could not complete"
@@ -379,6 +454,8 @@ class Reviewer:
             model = (
                 self.settings.review_model
                 if attempt.task.kind == "search"
+                else "qwen3.8-27b-noreason"
+                if attempt.task.kind == "coding"
                 else self.settings.review_fast_model
             )
             first = await self.ask(

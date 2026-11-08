@@ -316,6 +316,20 @@ class Harness:
             **self.review_states,
             **{tid: session.state.as_dict() for tid, session in self.sessions.items()},
         }
+        for tid, allocation in self.allocations.items():
+            states.setdefault(tid, {}).update(
+                producer_model=allocation.route_model or self.settings.model,
+                task_limit=allocation.hard_limit,
+            )
+        # Unselected candidates are immutable during this phase. Parse their files once.
+        predictions = {
+            t.task_id: self.review_policy.predict(
+                self.attempts[t.task_id],
+                self.budget.task_spent.get(t.task_id, 0) / 10,
+                states.get(t.task_id, {}),
+            )
+            for t in checks
+        }
         while checks and time.monotonic() < self.deadline:
             batch, remaining = [], self.budget.remaining
             for _ in range(self.settings.concurrency):
@@ -324,6 +338,8 @@ class Harness:
                     remaining,
                     self.budget.task_spent,
                     states,
+                    task_ceiling=self.settings.task_tokens,
+                    predictions=predictions,
                 )
                 if choice is None:
                     break
@@ -347,6 +363,8 @@ class Harness:
             await self.save_stage(task.task_id, "review")
 
     async def run_one(self, task, mode):
+        original = self.attempts[task.task_id].answer
+        before = self.budget.task_spent.get(task.task_id, 0)
         try:
             async with asyncio.timeout(max(0.01, self.deadline - time.monotonic())):
                 # Workflow graphs contain mutable execution state. Never share a
@@ -366,6 +384,16 @@ class Harness:
             self.trace("task_error", task_id=task.task_id, error=type(exc).__name__)
         finally:
             attempt = self.attempts[task.task_id]
+            if mode == "review" and not attempt.review_done:
+                attempt.answer = original
+                attempt.review_pending, attempt.review_done = False, True
+                attempt.verification = {
+                    "status": "unreviewed",
+                    "cost": (self.budget.task_spent.get(task.task_id, 0) - before) / 10,
+                    "calls": self.reviewer.calls.get(task.task_id, 0) if self.reviewer else 0,
+                    "reason": "Review interrupted; original candidate retained",
+                }
+                await self.save_stage(task.task_id, "review")
             if attempt.review_pending:
                 self.results[task.task_id] = {
                     "status": "awaiting_review",

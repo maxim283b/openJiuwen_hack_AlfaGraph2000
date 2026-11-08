@@ -54,7 +54,10 @@ def features(attempt, spent, state=None):
 
 class ReviewPolicy:
     def __init__(self, data):
-        if data["features"] != FEATURES or data["schema"] != 1:
+        from alfagraph.review_features import EXTRA
+
+        expected = FEATURES if data["schema"] == 1 else FEATURES + EXTRA
+        if data["features"] != expected or data["schema"] not in {1, 2}:
             raise ValueError("Incompatible review policy")
         self.data = data
 
@@ -63,10 +66,27 @@ class ReviewPolicy:
         return cls(json.loads(resolve_config(path).read_text())) if path else None
 
     def predict(self, attempt, spent, state=None):
-        x = features(attempt, spent, state)
+        if self.data["schema"] == 2:
+            from alfagraph.review_features import raw_text, rich_features, tokens
+
+            x = rich_features(attempt, spent, state)
+            counts = __import__("collections").Counter(tokens(raw_text(attempt)))
+            text = {
+                w: (1 + math.log(n)) * self.data.get("idf", {}).get(w, 0)
+                for w, n in counts.items()
+                if w in self.data.get("text_weights", {})
+            }
+            norm = math.sqrt(sum(v * v for v in text.values())) or 1
+        else:
+            x = features(attempt, spent, state)
+            text, norm = {}, 1
 
         def head(name):
-            return sum(a * b for a, b in zip(x, self.data["weights"][name], strict=True))
+            value = sum(a * b for a, b in zip(x, self.data["weights"][name], strict=True))
+            index = {"fix": 0, "harm": 1, "log_cost": 2}[name]
+            return value + sum(
+                v / norm * self.data["text_weights"][w][index] for w, v in text.items()
+            )
 
         fix = min(1, max(0, head("fix")))
         harm = min(1, max(0.01, head("harm")))
@@ -82,13 +102,20 @@ class ReviewPolicy:
             "supported": supported,
         }
 
-    def choose(self, attempts, remaining, task_spent, states):
+    def choose(self, attempts, remaining, task_spent, states, task_ceiling=None, predictions=None):
         ranked = []
         for a in attempts:
-            prediction = self.predict(
-                a, task_spent.get(a.task.task_id, 0) / 10, states.get(a.task.task_id, {})
+            prediction = (
+                predictions[a.task.task_id]
+                if predictions is not None
+                else self.predict(
+                    a, task_spent.get(a.task.task_id, 0) / 10, states.get(a.task.task_id, {})
+                )
             )
-            if prediction["expected_gain"] > 0 and prediction["cost"] <= remaining:
+            available = remaining
+            if task_ceiling is not None:
+                available = min(available, task_ceiling - task_spent.get(a.task.task_id, 0) / 10)
+            if prediction["expected_gain"] > 0 and prediction["cost"] <= available:
                 ranked.append((prediction["priority"], a.task.task_id, a.task, prediction))
         if not ranked:
             return None
