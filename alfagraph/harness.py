@@ -17,6 +17,7 @@ from alfagraph.planner import Planner
 from alfagraph.profile import CostProfile
 from alfagraph.repair import repair
 from alfagraph.review import Reviewer
+from alfagraph.review_policy import ReviewPolicy
 from alfagraph.selection import SelectionPolicy
 from alfagraph.tasks import atomic_write, load_tasks, normalize_answer
 from alfagraph.workflow import TaskWorkflow
@@ -76,6 +77,8 @@ class Harness:
         self.allocations = {}
         self.client = None
         self.reviewer = None
+        self.review_policy = ReviewPolicy.load(settings.review_policy)
+        self.review_states = {}
         review_state = {}
         self.offline = offline or not settings.api_key
         if resume:
@@ -307,6 +310,42 @@ class Harness:
         if mode == "review" and self.reviewer:
             await self.reviewer.review(self.attempts[task_id])
 
+    async def select_reviews(self, checks):
+        """Allocate only the remaining budget; skipped candidates retain their answers."""
+        states = {
+            **self.review_states,
+            **{tid: session.state.as_dict() for tid, session in self.sessions.items()},
+        }
+        while checks and time.monotonic() < self.deadline:
+            batch, remaining = [], self.budget.remaining
+            for _ in range(self.settings.concurrency):
+                choice = self.review_policy.choose(
+                    [self.attempts[t.task_id] for t in checks],
+                    remaining,
+                    self.budget.task_spent,
+                    states,
+                )
+                if choice is None:
+                    break
+                task, prediction = choice
+                checks.remove(task)
+                remaining -= prediction["cost"]
+                self.trace("review_selected", task_id=task.task_id, **prediction)
+                batch.append(task)
+            if not batch:
+                break
+            await asyncio.gather(*(self.run_one(t, "review") for t in batch))
+        for task in checks:
+            a = self.attempts[task.task_id]
+            a.review_pending, a.review_done = False, True
+            a.verification = {
+                "status": "not_selected",
+                "cost": 0,
+                "calls": 0,
+                "reason": "Predicted gain/cost or remaining budget",
+            }
+            await self.save_stage(task.task_id, "review")
+
     async def run_one(self, task, mode):
         try:
             async with asyncio.timeout(max(0.01, self.deadline - time.monotonic())):
@@ -435,6 +474,9 @@ class Harness:
                     if a.status != "solved" and not a.review_done and a.task.reward > 0
                 ]
                 checks.sort(key=lambda t: (priority[t.kind], t.reward), reverse=True)
+                if self.review_policy:
+                    await self.select_reviews(checks)
+                    checks = []
                 for index in range(0, len(checks), self.settings.concurrency):
                     if time.monotonic() >= self.deadline:
                         break

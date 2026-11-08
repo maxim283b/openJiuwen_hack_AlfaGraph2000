@@ -11,3 +11,5 @@
 !profiles/forecast-20261108.json
 **/__pycache__/
 **/*.pyc
+
+!profiles/review-policy-20261108.json

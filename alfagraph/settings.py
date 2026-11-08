@@ -28,6 +28,7 @@ class Settings:
     forecast: str = ""
     forecast_policy: str = ""
     verification: bool = False
+    review_policy: str = ""
     review_tokens: int = 3200
     review_model: str = "qwen3.8-27b"
     review_fast_model: str = "qwen3.6-35b-a3b-noreason"
@@ -54,6 +55,7 @@ class Settings:
             forecast=os.getenv("AGENT_FORECAST_PROFILE", ""),
             forecast_policy=os.getenv("AGENT_FORECAST_POLICY", ""),
             verification=os.getenv("AGENT_VERIFICATION", "0") == "1",
+            review_policy=os.getenv("AGENT_REVIEW_POLICY", ""),
             review_tokens=int(os.getenv("AGENT_REVIEW_TOKENS", "3200")),
             review_model=os.getenv("AGENT_REVIEW_MODEL", cls.review_model),
             review_fast_model=os.getenv("AGENT_REVIEW_FAST_MODEL", cls.review_fast_model),

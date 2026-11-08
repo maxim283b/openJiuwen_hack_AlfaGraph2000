@@ -20,3 +20,5 @@ profiles/*
 !profiles/public-20261108.json
 !profiles/bandit-20261108.json
 !profiles/forecast-20261108.json
+
+!profiles/review-policy-20261108.json
