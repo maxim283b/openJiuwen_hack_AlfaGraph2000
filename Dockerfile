@@ -20,10 +20,10 @@ ENV AGENT_BANDIT=/app/profiles/bandit-20261108.json
 ENV AGENT_FORECAST_PROFILE=/app/profiles/forecast-20261108.json
 ENV AGENT_FORECAST_POLICY=density
 ENV AGENT_VERIFICATION=1
-ENV AGENT_REVIEW_STRATEGY=search_only
+ENV AGENT_REVIEW_STRATEGY=learned
 ENV AGENT_CONCURRENCY=2
 ENV AGENT_RPM=45
-ENV AGENT_REVIEW_POLICY=/app/profiles/review-expanded-20261108.json
+ENV AGENT_REVIEW_POLICY=/app/profiles/review-balanced-20261109.json
 COPY alfagraph /app/alfagraph
 COPY profiles/public-20261108.json profiles/bandit-20261108.json profiles/forecast-20261108.json profiles/review-expanded-20261108.json profiles/review-balanced-20261109.json /app/profiles/
 COPY run_agent.py /app/run_agent.py
