@@ -114,9 +114,15 @@ def context(attempt):
 
 def evidence(attempt, report):
     checked = []
-    for item in report.get("evidence", []):
+    items = report.get("evidence", [])
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ValueError("Evidence must be a list of path/quote objects")
+    for item in items:
         quote = item.get("quote", "")
-        path = resolve(attempt.work, item.get("path", ""))
+        name = item.get("path", "")
+        if not isinstance(quote, str) or not isinstance(name, str):
+            raise ValueError("Evidence path and quote must be strings")
+        path = resolve(attempt.work, name)
         if not quote or not path.is_file() or quote not in path.read_text():
             raise ValueError("Evidence must be an exact quote from a supplied file")
         checked.append(quote)
