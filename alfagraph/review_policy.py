@@ -92,6 +92,9 @@ class ReviewPolicy:
         harm = min(1, max(0.01, head("harm")))
         cost = min(3200, max(150, math.expm1(min(9, head("log_cost")))))
         supported = self.data["support"].get(attempt.task.kind, 0) >= 3
+        review_kinds = self.data.get("review_kinds")
+        if review_kinds is not None:
+            supported = supported and attempt.task.kind in review_kinds
         gain = attempt.task.reward * (fix - harm) if supported else 0
         return {
             "fix_probability": fix,
