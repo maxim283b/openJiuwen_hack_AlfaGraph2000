@@ -414,14 +414,16 @@ class Reviewer:
         strong = await self.ask(attempt, self.settings.review_model, "repair_adjudication", extra)
         if not strong:
             return attempt.answer, "unreviewed", "Repair budget exhausted"
-        if strong["verdict"] == "insufficient":
-            return None, "insufficient", strong["reason"]
         if strong.get("tests_valid") is False:
             return (
                 attempt.answer,
                 "unreviewed",
                 "Generated test rejected as outside contract: " + strong["reason"],
             )
+        if strong["verdict"] == "insufficient":
+            return None, "insufficient", strong["reason"]
+        if strong["verdict"] != "answerable" or strong.get("tests_valid") is not True:
+            return attempt.answer, "unreviewed", "Contract tests were not confirmed valid"
         tests = strong.get("tests") or code
         validate_tests(tests)
         fixes = strong.get("fixes", [])
@@ -438,14 +440,7 @@ class Reviewer:
             tid,
             min(
                 self.settings.task_tokens,
-                math.ceil(
-                    before
-                    + (
-                        self.settings.review_tokens
-                        if attempt.task.kind == "coding"
-                        else self.settings.review_tokens
-                    )
-                ),
+                math.ceil(before + self.settings.review_tokens),
             ),
         )
         self.client.trace("review_started", task_id=tid, limit=self.limits[tid])
