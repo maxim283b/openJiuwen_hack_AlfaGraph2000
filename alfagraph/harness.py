@@ -312,6 +312,9 @@ class Harness:
 
     async def select_reviews(self, checks):
         """Allocate only the remaining budget; skipped candidates retain their answers."""
+        if self.settings.review_strategy == "search_only":
+            await self.select_search_reviews(checks)
+            return
         states = {
             **self.review_states,
             **{tid: session.state.as_dict() for tid, session in self.sessions.items()},
@@ -351,6 +354,26 @@ class Harness:
             if not batch:
                 break
             await asyncio.gather(*(self.run_one(t, "review") for t in batch))
+        await self.retain_unselected_reviews(checks, "Predicted gain/cost or remaining budget")
+
+    async def select_search_reviews(self, checks):
+        """Review search tasks in the same order as the frozen search-only control."""
+        remaining = list(checks)
+        searches = sorted(
+            (task for task in checks if task.kind == "search"),
+            key=lambda task: (-task.reward, task.task_id),
+        )
+        for index in range(0, len(searches), self.settings.concurrency):
+            if time.monotonic() >= self.deadline:
+                break
+            batch = searches[index : index + self.settings.concurrency]
+            for task in batch:
+                remaining.remove(task)
+                self.trace("review_selected", task_id=task.task_id, strategy="search_only")
+            await asyncio.gather(*(self.run_one(task, "review") for task in batch))
+        await self.retain_unselected_reviews(remaining, "Search-only strategy or remaining time")
+
+    async def retain_unselected_reviews(self, checks, reason):
         for task in checks:
             a = self.attempts[task.task_id]
             a.review_pending, a.review_done = False, True
@@ -358,7 +381,7 @@ class Harness:
                 "status": "not_selected",
                 "cost": 0,
                 "calls": 0,
-                "reason": "Predicted gain/cost or remaining budget",
+                "reason": reason,
             }
             await self.save_stage(task.task_id, "review")
 
@@ -502,7 +525,7 @@ class Harness:
                     if a.status != "solved" and not a.review_done and a.task.reward > 0
                 ]
                 checks.sort(key=lambda t: (priority[t.kind], t.reward), reverse=True)
-                if self.review_policy:
+                if self.review_policy or self.settings.review_strategy == "search_only":
                     await self.select_reviews(checks)
                     checks = []
                 for index in range(0, len(checks), self.settings.concurrency):

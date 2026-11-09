@@ -29,6 +29,7 @@ class Settings:
     forecast_policy: str = ""
     verification: bool = False
     review_policy: str = ""
+    review_strategy: str = "learned"
     review_tokens: int = 3200
     review_model: str = "qwen3.8-27b"
     review_fast_model: str = "qwen3.6-35b-a3b-noreason"
@@ -56,6 +57,7 @@ class Settings:
             forecast_policy=os.getenv("AGENT_FORECAST_POLICY", ""),
             verification=os.getenv("AGENT_VERIFICATION", "0") == "1",
             review_policy=os.getenv("AGENT_REVIEW_POLICY", ""),
+            review_strategy=os.getenv("AGENT_REVIEW_STRATEGY", "learned"),
             review_tokens=int(os.getenv("AGENT_REVIEW_TOKENS", "3200")),
             review_model=os.getenv("AGENT_REVIEW_MODEL", cls.review_model),
             review_fast_model=os.getenv("AGENT_REVIEW_FAST_MODEL", cls.review_fast_model),
@@ -74,6 +76,7 @@ class Settings:
             or settings.forecast_policy not in {"", "step", "density", "knapsack", "mpc"}
             or bool(settings.forecast) != bool(settings.forecast_policy)
             or settings.review_tokens < 512
+            or settings.review_strategy not in {"learned", "search_only"}
             or settings.review_model not in MODELS
             or settings.review_fast_model not in MODELS
         ):
